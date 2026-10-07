@@ -36,7 +36,7 @@ func newServer(cfg Config, feeds feedSource, now func() time.Time) *server.MCPSe
 	), h.listEvents)
 	s.AddTool(mcp.NewTool("get_event", mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDescription("Get one event occurrence with its description and organizer. Same fields and time format as list_events: "+
-			"an all-day event has dates, and its end is exclusive."),
+			"an all-day event has dates instead of times. The end is exclusive: the first moment (or day) after the event."),
 		mcp.WithString("calendar", mcp.Required(), mcp.Enum(slices.Sorted(maps.Keys(cfg.Calendars))...), mcp.Description("The calendar of the event.")),
 		mcp.WithString("uid", mcp.Required(), mcp.Description("The uid given by list_events.")),
 		mcp.WithString("start", mcp.Required(), mcp.Description("The start given by list_events: ISO 8601 with offset, or YYYY-MM-DD for an all-day event.")),
@@ -102,18 +102,13 @@ type getResult struct {
 }
 
 func (h *handlers) getEvent(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	calendar, err := req.RequireString("calendar")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+	var args [3]string
+	for i, name := range []string{"calendar", "uid", "start"} {
+		if args[i] = req.GetString(name, ""); args[i] == "" {
+			return mcp.NewToolResultError(name + " is required"), nil
+		}
 	}
-	uid, err := req.RequireString("uid")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-	rawStart, err := req.RequireString("start")
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
+	calendar, uid, rawStart := args[0], args[1], args[2]
 	start, err := time.Parse(time.RFC3339, rawStart)
 	if err != nil {
 		if start, err = time.ParseInLocation(time.DateOnly, rawStart, h.cfg.Location); err != nil {

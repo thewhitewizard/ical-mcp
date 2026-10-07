@@ -403,6 +403,8 @@ func TestGetEvent(t *testing.T) {
 		{"unknown calendar", map[string]any{"calendar": "nope", "uid": "simple", "start": "2026-03-10"}, "unknown calendar"},
 		{"missing uid", map[string]any{"calendar": "perso", "start": "2026-03-10"}, "uid"},
 		{"missing calendar", map[string]any{"uid": "simple", "start": "2026-03-10"}, "calendar"},
+		{"empty calendar is not all calendars", map[string]any{"calendar": "", "uid": "simple", "start": "2026-03-10T14:00:00+01:00"}, "calendar"},
+		{"empty uid", map[string]any{"calendar": "perso", "uid": "", "start": "2026-03-10T14:00:00+01:00"}, "uid"},
 	}
 	for _, tt := range failures {
 		t.Run(tt.name, func(t *testing.T) {
