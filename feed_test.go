@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -117,7 +118,7 @@ func TestFeedStore_Get_Failures(t *testing.T) {
 			handler: func(w http.ResponseWriter, _ *http.Request) {
 				for range 10 {
 					_, _ = w.Write([]byte(strings.Repeat("x", 10)))
-					w.(http.Flusher).Flush()
+					_ = http.NewResponseController(w).Flush()
 				}
 			},
 			setup:   func(fx *storeFixture, _ *testFeed) { fx.store.maxBytes = 50 },
@@ -209,12 +210,13 @@ func (s *switchableFeed) handler(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 		return
 	}
-	_, _ = w.Write([]byte(s.body.Load().(string)))
+	body, _ := s.body.Load().(string)
+	_, _ = w.Write([]byte(body))
 }
 
-func newSwitchableFeed(body string) *switchableFeed {
+func newSwitchableFeed() *switchableFeed {
 	s := &switchableFeed{}
-	s.body.Store(body)
+	s.body.Store("v1")
 	return s
 }
 
@@ -249,7 +251,7 @@ func TestFeedStore_Get_Cache(t *testing.T) {
 
 	t.Run("an expired copy is downloaded again", func(t *testing.T) {
 		t.Parallel()
-		sw := newSwitchableFeed("v1")
+		sw := newSwitchableFeed()
 		feed := newTestFeed(t, sw.handler)
 		fx := newTestStore(t, feed, feed.feedURL())
 
@@ -268,7 +270,7 @@ func TestFeedStore_Get_Cache(t *testing.T) {
 
 	t.Run("a failure is not cached", func(t *testing.T) {
 		t.Parallel()
-		sw := newSwitchableFeed("v1")
+		sw := newSwitchableFeed()
 		sw.fail.Store(true)
 		feed := newTestFeed(t, sw.handler)
 		fx := newTestStore(t, feed, feed.feedURL())
@@ -286,7 +288,7 @@ func TestFeedStore_Get_Cache(t *testing.T) {
 
 	t.Run("an expired copy is served stale when the download fails", func(t *testing.T) {
 		t.Parallel()
-		sw := newSwitchableFeed("v1")
+		sw := newSwitchableFeed()
 		feed := newTestFeed(t, sw.handler)
 		fx := newTestStore(t, feed, feed.feedURL())
 
@@ -311,6 +313,21 @@ func TestFeedStore_Get_Cache(t *testing.T) {
 		body, stale = mustGet(t, fx)
 		if body != "v2" || stale {
 			t.Errorf("after recovery Get() = (%q, %v), want (v2, false)", body, stale)
+		}
+	})
+
+	t.Run("a canceled call is not answered with a stale copy", func(t *testing.T) {
+		t.Parallel()
+		sw := newSwitchableFeed()
+		feed := newTestFeed(t, sw.handler)
+		fx := newTestStore(t, feed, feed.feedURL())
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		mustGet(t, fx)
+		fx.clock.Advance(time.Hour)
+		if _, _, err := fx.store.Get(ctx, "perso"); !errors.Is(err, errCanceled) {
+			t.Errorf("with a copy, error = %v, want %v", err, errCanceled)
 		}
 	})
 

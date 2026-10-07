@@ -93,7 +93,7 @@ func (s *feedStore) Get(ctx context.Context, alias string) (body []byte, stale b
 
 	body, err = s.download(ctx, feed)
 	if err != nil {
-		if haveCopy {
+		if haveCopy && ctx.Err() == nil {
 			s.logger.Printf("calendar %q: download failed (%v), serving a stale copy", alias, err)
 			return cached.body, true, nil
 		}
