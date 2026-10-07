@@ -1,0 +1,11 @@
+{
+  "timezone": "Europe/Paris",
+  "default_window_days": 30,
+  "max_range_days": 366,
+  "max_events": 100,
+  "cache_ttl_seconds": 300,
+  "calendars": {
+    "perso": "https://calendar.google.com/calendar/ical/REMPLACER/private-REMPLACER/basic.ics",
+    "travail": "https://calendar.example.com/ical/REMPLACER/basic.ics"
+  }
+}
