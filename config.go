@@ -56,8 +56,8 @@ func loadConfig(path string) (Config, error) {
 
 // validate checks the values and loads the timezone.
 func (c *Config) validate() error {
-	if c.Timezone == "" {
-		return errors.New("config: timezone is required")
+	if c.Timezone == "" || c.Timezone == "Local" {
+		return errors.New("config: timezone is required and must be an IANA zone (not \"Local\")")
 	}
 	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {

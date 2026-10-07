@@ -103,6 +103,7 @@ func TestLoadConfig_Invalid(t *testing.T) {
 		{"unknown field", `{"timezone": "Europe/Paris", "max_event": 5, "calendars": {` + feed + `}}`, "max_event"},
 		{"missing timezone", `{"calendars": {` + feed + `}}`, "timezone"},
 		{"unknown timezone", `{"timezone": "Mars/Olympus", "calendars": {` + feed + `}}`, "timezone"},
+		{"local timezone", `{"timezone": "Local", "calendars": {` + feed + `}}`, "timezone"},
 		{"no calendars", `{"timezone": "Europe/Paris"}`, "calendar"},
 		{"empty calendars", `{"timezone": "Europe/Paris", "calendars": {}}`, "calendar"},
 		{"empty alias", `{"timezone": "Europe/Paris", "calendars": {"": "` + secretFeed + `"}}`, "alias"},
