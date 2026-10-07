@@ -34,6 +34,13 @@ func newServer(cfg Config, feeds feedSource, now func() time.Time) *server.MCPSe
 		mcp.WithString("from", mcp.Description("First day, YYYY-MM-DD. Default: today.")),
 		mcp.WithString("to", mcp.Description("Last day, YYYY-MM-DD. Default: from plus the default window.")),
 	), h.listEvents)
+	s.AddTool(mcp.NewTool("get_event", mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDescription("Get one event occurrence with its description and organizer. Same fields and time format as list_events: "+
+			"an all-day event has dates, and its end is exclusive."),
+		mcp.WithString("calendar", mcp.Required(), mcp.Enum(slices.Sorted(maps.Keys(cfg.Calendars))...), mcp.Description("The calendar of the event.")),
+		mcp.WithString("uid", mcp.Required(), mcp.Description("The uid given by list_events.")),
+		mcp.WithString("start", mcp.Required(), mcp.Description("The start given by list_events: ISO 8601 with offset, or YYYY-MM-DD for an all-day event.")),
+	), h.getEvent)
 	return s
 }
 
@@ -86,6 +93,54 @@ func (h *handlers) listEvents(ctx context.Context, req mcp.CallToolRequest) (*mc
 		result.Events, result.Truncated = result.Events[:h.cfg.MaxEvents], true
 	}
 	return jsonResult(result), nil
+}
+
+// getResult is the answer of get_event.
+type getResult struct {
+	Event Occurrence `json:"event"`
+	Stale []string   `json:"stale,omitempty"`
+}
+
+func (h *handlers) getEvent(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	calendar, err := req.RequireString("calendar")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	uid, err := req.RequireString("uid")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	rawStart, err := req.RequireString("start")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	start, err := time.Parse(time.RFC3339, rawStart)
+	if err != nil {
+		if start, err = time.ParseInLocation(time.DateOnly, rawStart, h.cfg.Location); err != nil {
+			return mcp.NewToolResultError("start must be as given by list_events: YYYY-MM-DDTHH:MM:SS+HH:MM, or YYYY-MM-DD"), nil
+		}
+	}
+	aliases, err := h.aliases(calendar)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// The Occurrence starts within the day of its start.
+	day := start.In(h.cfg.Location)
+	c := h.fetchAll(ctx, aliases, newWindow(day, day, h.cfg.Location))[0]
+	if c.err != nil {
+		return mcp.NewToolResultError(c.alias + ": " + c.err.Error()), nil
+	}
+	for _, o := range c.found {
+		if o.UID == uid && o.start.Equal(start) {
+			result := getResult{Event: o}
+			if c.stale {
+				result.Stale = []string{c.alias}
+			}
+			return jsonResult(result), nil
+		}
+	}
+	return mcp.NewToolResultError("occurrence not found"), nil
 }
 
 // fetched is what one Calendar gave: its Occurrences in the Window, or an error.

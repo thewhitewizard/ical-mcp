@@ -4,8 +4,6 @@ Serveur MCP (transport stdio) en **lecture seule** qui donne à un assistant IA 
 
 Il ne dépend d'aucun agent en particulier : n'importe quel client MCP peut le lancer comme sous-processus. Binaire statique, une seule configuration JSON.
 
-> En cours de construction : l'outil `list_events` est disponible, `get_event` arrive dans un ticket de suite.
-
 ## Outils
 
 ### `list_events(calendar?, from?, to?)`
@@ -32,6 +30,24 @@ Réponse (JSON compact) :
 - `stale` : calendriers servis depuis le cache parce que le téléchargement a échoué.
 - `errors` : calendriers dont la lecture a échoué, par alias (jamais l'adresse), avec la cause : `unreachable`, `timed out`, `HTTP status 404`, `too large`, `invalid iCal data`. Les autres calendriers sont servis quand même ; si tous échouent, c'est une erreur d'outil. Un calendrier en cache dont la copie ne se lit plus est dans `errors`, pas dans `stale`.
 - Les champs `truncated`, `stale` et `errors` sont absents quand ils sont vides.
+
+### `get_event(calendar, uid, start)`
+
+Donne une occurrence avec sa description et son organisateur. Les trois paramètres sont obligatoires et se copient de la sortie de `list_events` :
+
+| Paramètre | Rôle |
+|---|---|
+| `calendar` | l'alias du calendrier |
+| `uid` | l'`uid` de l'événement |
+| `start` | le `start` de l'occurrence : ISO 8601 avec décalage, ou `AAAA-MM-JJ` pour un événement sur la journée entière |
+
+`start` est comparé comme un instant : `2026-03-10T13:00:00Z` désigne la même occurrence que `2026-03-10T14:00:00+01:00`. Les occurrences d'une série récurrente ont le même `uid`, d'où `start`.
+
+```json
+{"event":{"uid":"abc","calendar":"perso","title":"Standup","start":"2026-03-10T14:00:00+01:00","end":"2026-03-10T15:00:00+01:00","all_day":false,"location":"Salle A","description":"Point quotidien","organizer":"Alice"},"stale":["perso"]}
+```
+
+`stale` (absent si vide) signale que le calendrier vient du cache parce que le téléchargement a échoué. Erreurs d'outil possibles : `occurrence not found`, un `start` mal formé, un alias inconnu, ou `alias: cause` si le calendrier ne peut pas être lu (jamais l'adresse).
 
 ## Compilation
 
