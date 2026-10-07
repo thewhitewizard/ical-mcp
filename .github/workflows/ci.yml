@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0 # the coverage check needs the merge-base with the base branch
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Files not formatted with gofmt:"; echo "$unformatted"; exit 1
+          fi
+      - name: go build
+        run: CGO_ENABLED=0 go build ./...
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        # An explicit seed, printed here, replays an order-dependent failure:
+        # go test -shuffle=<seed> ./...
+        run: |
+          seed="$(date +%s%N)"
+          echo "go test shuffle seed: $seed"
+          go test -race -shuffle="$seed" -coverpkg=./... -coverprofile="$RUNNER_TEMP/cover.out" ./...
+      - name: Changed-line coverage (≥ 80 %)
+        if: github.event_name == 'pull_request'
+        run: bash scripts/check-coverage.sh "$RUNNER_TEMP/cover.out" "origin/${{ github.base_ref }}"
+
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.14.0
+
+  pr-size:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: PR size (≤ 500 Go lines, tests included)
+        run: bash scripts/check-pr-size.sh "origin/${{ github.base_ref }}"
