@@ -81,7 +81,7 @@ Le binaire n'embarque **pas** la base des fuseaux horaires. Dans un conteneur sa
 ## Sécurité
 
 - Lecture seule : aucun outil ne modifie quoi que ce soit.
-- Aucun outil n'accepte d'adresse. Les adresses des flux sont des secrets : elles n'apparaissent ni dans les résultats, ni dans les erreurs, ni dans les logs. Protégez le fichier de configuration (`chmod 600`).
+- Aucun outil n'accepte d'adresse. Les adresses des flux sont des secrets : elles n'apparaissent ni dans les résultats, ni dans les erreurs, ni dans les logs. Protégez le fichier de configuration (`chmod 600`) ; `config.json` est dans le `.gitignore`, ne le commitez pas.
 - Le texte des événements vient de tiers et n'est pas fiable : les caractères de contrôle et les caractères invisibles sont supprimés, `title` et `location` sont tronqués à 200 caractères, `description` à 1000.
 - Téléchargement : HTTPS uniquement (redirections comprises), délai de 10 s, 10 Mo au plus, cache en mémoire par calendrier.
 - stdout ne porte que le protocole MCP ; tous les logs vont sur stderr.
@@ -141,17 +141,16 @@ Les formats de ces trois agents évoluent : en cas de doute, vérifiez la docume
 
 ## Test manuel en stdio
 
-Cette commande lance le serveur, fait la poignée de main MCP et liste les outils :
+Cette commande lance le serveur, fait la poignée de main MCP et liste les outils. Le `sleep` garde stdin ouvert : le serveur s'arrête dès qu'il se ferme et annule alors un téléchargement en cours (`canceled`).
 
 ```sh
-printf '%s\n' \
+{ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | ./ical-mcp --config config.json
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 5; } | ./ical-mcp --config config.json
 ```
 
-Les réponses (sur stdout, une par ligne) peuvent arriver dans n'importe quel ordre : c'est permis par JSON-RPC, repérez-les par leur `id`. Le message de démarrage est sur stderr. Pour appeler un outil, ajoutez par exemple :
+Les réponses (sur stdout, une par ligne) peuvent arriver dans n'importe quel ordre : c'est permis par JSON-RPC, repérez-les par leur `id`. Le message de démarrage est sur stderr. Pour appeler un outil, ajoutez par exemple, dans le `printf` :
 
 ```sh
 '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_events","arguments":{"from":"2026-03-01","to":"2026-03-31"}}}'
