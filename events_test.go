@@ -42,6 +42,33 @@ func TestClean(t *testing.T) {
 	}
 }
 
+func TestNewWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		first, last time.Time
+		wantStart   string
+		wantEnd     string
+	}{
+		{"one day", time.Date(2026, 3, 10, 0, 0, 0, 0, paris), time.Date(2026, 3, 10, 0, 0, 0, 0, paris), "2026-03-10T00:00:00+01:00", "2026-03-11T00:00:00+01:00"},
+		{"the last day is included", time.Date(2026, 3, 1, 0, 0, 0, 0, paris), time.Date(2026, 3, 31, 0, 0, 0, 0, paris), "2026-03-01T00:00:00+01:00", "2026-04-01T00:00:00+02:00"},
+		{"the day of a daylight saving change", time.Date(2026, 3, 29, 0, 0, 0, 0, paris), time.Date(2026, 3, 29, 0, 0, 0, 0, paris), "2026-03-29T00:00:00+01:00", "2026-03-30T00:00:00+02:00"},
+		{"only the date counts", time.Date(2026, 3, 10, 23, 30, 0, 0, time.UTC), time.Date(2026, 3, 10, 1, 0, 0, 0, time.UTC), "2026-03-10T00:00:00+01:00", "2026-03-11T00:00:00+01:00"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := newWindow(tt.first, tt.last, paris)
+			if start, end := got.start.Format(time.RFC3339), got.end.Format(time.RFC3339); start != tt.wantStart || end != tt.wantEnd {
+				t.Errorf("newWindow() = [%s, %s), want [%s, %s)", start, end, tt.wantStart, tt.wantEnd)
+			}
+		})
+	}
+}
+
 var paris = func() *time.Location {
 	loc, err := time.LoadLocation("Europe/Paris")
 	if err != nil {
@@ -255,5 +282,19 @@ func TestOccurrences_InvalidFeed(t *testing.T) {
 				t.Errorf("error = %q, want a generic message that does not quote the Feed", err)
 			}
 		})
+	}
+}
+
+func TestOccurrences_BackslashInATitleIsKept(t *testing.T) {
+	t.Parallel()
+
+	feed := inlineFeed("DTSTART:20260310T090000Z", "DTEND:20260310T100000Z", `SUMMARY:C:\new folder`)
+
+	got, err := occurrences(feed, "perso", march2026, paris)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("occurrences() = %v, %v; want one Occurrence", got, err)
+	}
+	if want := `C:\new folder`; got[0].Title != want {
+		t.Errorf("Title = %q, want %q", got[0].Title, want)
 	}
 }

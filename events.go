@@ -64,8 +64,11 @@ func newWindow(firstDay, lastDay time.Time, loc *time.Location) window {
 	}
 }
 
-// textNewlines turns the escaped line breaks of iCal text into real ones: gocal
-// unescapes everything else but them.
+// textNewlines turns the escaped line breaks of a description into real ones:
+// gocal unescapes everything else but them. It reads text gocal has already
+// unescaped, so a backslash followed by "n" in the original is taken for a line
+// break too; that is why it is not applied to titles and locations, which are
+// one line.
 var textNewlines = strings.NewReplacer(`\n`, "\n", `\N`, "\n")
 
 // errInvalidFeed is all that is said about a Feed that cannot be read: the
@@ -133,11 +136,11 @@ func occurrences(feed []byte, calendar string, win window, loc *time.Location) (
 		found = append(found, Occurrence{
 			UID:         e.Uid,
 			Calendar:    calendar,
-			Title:       clean(textNewlines.Replace(e.Summary), maxShortText, false),
+			Title:       clean(e.Summary, maxShortText, false),
 			Start:       start.In(loc).Format(layout),
 			End:         end.In(loc).Format(layout),
 			AllDay:      allDay,
-			Location:    clean(textNewlines.Replace(e.Location), maxShortText, false),
+			Location:    clean(e.Location, maxShortText, false),
 			Description: clean(textNewlines.Replace(e.Description), maxDescriptionText, true),
 			Organizer:   clean(organizer, maxShortText, false),
 			start:       start,
