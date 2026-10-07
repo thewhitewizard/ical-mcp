@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -56,8 +57,7 @@ func run(args []string, getenv func(string) string, stderr io.Writer, serve func
 	}
 	logger.Printf("starting with %d calendar(s), timezone %s", len(cfg.Calendars), cfg.Timezone)
 
-	s := server.NewMCPServer("ical-mcp", version, server.WithRecovery())
-	if err := serve(s); err != nil {
+	if err := serve(newServer(cfg, newFeedStore(cfg, nil, time.Now, logger), time.Now)); err != nil {
 		logger.Printf("server stopped: %v", err)
 		return 1
 	}

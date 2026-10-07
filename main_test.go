@@ -93,3 +93,15 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_ServesTheTools(t *testing.T) {
+	t.Parallel()
+
+	res := runWith(t, []string{"--config", writeConfig(t, validConfig)}, nil, nil)
+	if res.served == nil {
+		t.Fatalf("no server was served (stderr: %q)", res.stderr)
+	}
+	if tools := string(rpc(t, res.served, "tools/list", nil)); !strings.Contains(tools, `"list_events"`) {
+		t.Errorf("tools/list = %s, want list_events", tools)
+	}
+}
