@@ -90,18 +90,20 @@ func TestTools_List(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(listed.Tools) != 1 || listed.Tools[0].Name != "list_events" {
-		t.Fatalf("tools = %+v, want only list_events", listed.Tools)
+	wantParams := map[string][]string{"list_events": {"calendar", "from", "to"}, "get_event": {"calendar", "start", "uid"}}
+	if len(listed.Tools) != len(wantParams) {
+		t.Fatalf("tools = %+v, want list_events and get_event", listed.Tools)
 	}
-	tool := listed.Tools[0]
-	if !tool.Annotations.ReadOnlyHint || !strings.Contains(tool.Description, "exclusive") {
-		t.Errorf("want a read-only tool whose description says that end is exclusive: %+v", tool)
-	}
-	if got := tool.InputSchema.Properties["calendar"].Enum; !slices.Equal(got, []string{"perso", "travail"}) {
-		t.Errorf("calendar enum = %v, want the configured aliases", got)
-	}
-	if got := slices.Sorted(maps.Keys(tool.InputSchema.Properties)); !slices.Equal(got, []string{"calendar", "from", "to"}) {
-		t.Errorf("parameters = %v, want calendar, from and to: a Feed address must not be accepted", got)
+	for _, tool := range listed.Tools {
+		if !tool.Annotations.ReadOnlyHint || !strings.Contains(tool.Description, "exclusive") {
+			t.Errorf("%s: want a read-only tool whose description says that end is exclusive: %+v", tool.Name, tool)
+		}
+		if got := tool.InputSchema.Properties["calendar"].Enum; !slices.Equal(got, []string{"perso", "travail"}) {
+			t.Errorf("%s: calendar enum = %v, want the configured aliases", tool.Name, got)
+		}
+		if got := slices.Sorted(maps.Keys(tool.InputSchema.Properties)); !slices.Equal(got, wantParams[tool.Name]) {
+			t.Errorf("%s: parameters = %v, want %v: a Feed address must not be accepted", tool.Name, got, wantParams[tool.Name])
+		}
 	}
 }
 
@@ -318,6 +320,110 @@ func TestListEvents_UnreliableCalendars(t *testing.T) {
 
 		if want := "perso: timed out; travail: unreachable"; !isError || text != want {
 			t.Errorf("list_events = (%q, %v), want (%q, true)", text, isError, want)
+		}
+	})
+}
+
+// callGet calls get_event and returns the text it answered and whether it is an error.
+func callGet(t *testing.T, srv *server.MCPServer, args map[string]any) (text string, isError bool) {
+	t.Helper()
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(rpc(t, srv, "tools/call", map[string]any{"name": "get_event", "arguments": args}), &result); err != nil || len(result.Content) != 1 {
+		t.Fatalf("get_event: unexpected result %+v (%v)", result, err)
+	}
+	return result.Content[0].Text, result.IsError
+}
+
+func TestGetEvent(t *testing.T) {
+	t.Parallel()
+
+	feeds := testFeeds(t)
+	feeds["famille"] = fakeFeed{body: readTestdata(t, "allday.ics")}
+	srv := newTestServer(feeds, func(c *Config) {
+		c.Calendars["famille"] = "https://example.com/c"
+	})
+
+	t.Run("a timed Occurrence with its description and organizer", func(t *testing.T) {
+		t.Parallel()
+
+		text, isError := callGet(t, srv, map[string]any{"calendar": "perso", "uid": "simple", "start": "2026-03-10T14:00:00+01:00"})
+
+		want := `{"event":{"uid":"simple","calendar":"perso","title":"Standup","start":"2026-03-10T14:00:00+01:00",` +
+			`"end":"2026-03-10T15:00:00+01:00","all_day":false,"location":"Salle A",` +
+			`"description":"Point quotidien\nApporter le rapport","organizer":"Alice"}}`
+		if isError || text != want {
+			t.Errorf("get_event = (%q, %v), want (%q, false)", text, isError, want)
+		}
+	})
+
+	t.Run("the start is matched on the instant, whatever its offset", func(t *testing.T) {
+		t.Parallel()
+
+		text, isError := callGet(t, srv, map[string]any{"calendar": "perso", "uid": "simple", "start": "2026-03-10T13:00:00Z"})
+
+		if isError || !strings.Contains(text, `"uid":"simple"`) {
+			t.Errorf("get_event = (%q, %v), want the Occurrence", text, isError)
+		}
+	})
+
+	t.Run("an all-day Occurrence is found by its date", func(t *testing.T) {
+		t.Parallel()
+
+		text, isError := callGet(t, srv, map[string]any{"calendar": "famille", "uid": "one-day", "start": "2026-03-05"})
+
+		if isError || !strings.Contains(text, `"start":"2026-03-05","end":"2026-03-06","all_day":true`) {
+			t.Errorf("get_event = (%q, %v), want the all-day Occurrence", text, isError)
+		}
+	})
+
+	t.Run("a stale Calendar is listed", func(t *testing.T) {
+		t.Parallel()
+
+		stale := newTestServer(fakeFeeds{"perso": {body: readTestdata(t, "events.ics"), stale: true}, "travail": {}}, nil)
+		text, isError := callGet(t, stale, map[string]any{"calendar": "perso", "uid": "simple", "start": "2026-03-10T14:00:00+01:00"})
+
+		if isError || !strings.HasSuffix(text, `,"stale":["perso"]}`) {
+			t.Errorf("get_event = (%q, %v), want stale perso", text, isError)
+		}
+	})
+
+	failures := []struct {
+		name    string
+		args    map[string]any
+		wantErr string
+	}{
+		{"unknown uid", map[string]any{"calendar": "perso", "uid": "nope", "start": "2026-03-10T14:00:00+01:00"}, "occurrence not found"},
+		{"another start", map[string]any{"calendar": "perso", "uid": "simple", "start": "2026-03-10T14:30:00+01:00"}, "occurrence not found"},
+		{"start is not a date", map[string]any{"calendar": "perso", "uid": "simple", "start": "tomorrow"}, "start must"},
+		{"unknown calendar", map[string]any{"calendar": "nope", "uid": "simple", "start": "2026-03-10"}, "unknown calendar"},
+		{"missing uid", map[string]any{"calendar": "perso", "start": "2026-03-10"}, "uid"},
+		{"missing calendar", map[string]any{"uid": "simple", "start": "2026-03-10"}, "calendar"},
+		{"empty calendar is not all calendars", map[string]any{"calendar": "", "uid": "simple", "start": "2026-03-10T14:00:00+01:00"}, "calendar"},
+		{"empty uid", map[string]any{"calendar": "perso", "uid": "", "start": "2026-03-10T14:00:00+01:00"}, "uid"},
+	}
+	for _, tt := range failures {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if text, isError := callGet(t, srv, tt.args); !isError || !strings.Contains(text, tt.wantErr) {
+				t.Errorf("get_event %v = (%q, %v), want an error mentioning %q", tt.args, text, isError, tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("a failing Calendar is an error that names only its alias", func(t *testing.T) {
+		t.Parallel()
+
+		broken := newTestServer(fakeFeeds{"perso": {err: errUnreachable}, "travail": {}}, nil)
+		text, isError := callGet(t, broken, map[string]any{"calendar": "perso", "uid": "simple", "start": "2026-03-10T14:00:00+01:00"})
+
+		if want := "perso: unreachable"; !isError || text != want {
+			t.Errorf("get_event = (%q, %v), want (%q, true)", text, isError, want)
 		}
 	})
 }
