@@ -28,9 +28,9 @@ Réponse (JSON compact) :
 
 - Les heures sont en ISO 8601 avec décalage, dans le fuseau `timezone`. Un événement sur la journée entière a des **dates** (`2026-03-05`) et sa fin est **exclusive** : le lendemain de son dernier jour.
 - Pas de description dans la liste.
-- `truncated` : `true` si `max_events` est atteint (les premiers événements sont gardés).
+- `truncated` : `true` si plus de `max_events` événements correspondent ; les premiers sont gardés.
 - `stale` : calendriers servis depuis le cache parce que le téléchargement a échoué.
-- `errors` : calendriers injoignables, par alias (jamais l'adresse). Les autres calendriers sont servis quand même ; si tous échouent, c'est une erreur d'outil.
+- `errors` : calendriers dont la lecture a échoué, par alias (jamais l'adresse), avec la cause : `unreachable`, `timed out`, `HTTP status 404`, `too large`, `invalid iCal data`. Les autres calendriers sont servis quand même ; si tous échouent, c'est une erreur d'outil. Un calendrier en cache dont la copie ne se lit plus est dans `errors`, pas dans `stale`.
 - Les champs `truncated`, `stale` et `errors` sont absents quand ils sont vides.
 
 ## Compilation
